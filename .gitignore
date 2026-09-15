@@ -1,0 +1,21 @@
+# secrets
+xiaomi.token
+*.token
+
+# python env / cache
+.venv/
+__pycache__/
+*.pyc
+
+# scratch / logged output
+plugin_out/
+*.csv
+*.log
+
+# decompile inputs (large binaries, not meant to be versioned)
+*.apk
+
+
+
+# OS junk
+.DS_Store
