@@ -39,8 +39,12 @@ import time
 try:
     from bleak import BleakClient, BleakScanner
     from cryptography.hazmat.primitives.ciphers.aead import AESCCM
+    from bleak.exc import BleakDeviceNotFoundError
 except ImportError:
     sys.exit("pip install bleak cryptography")
+
+from usbids_helper import usb_list_find
+
 
 # ---------------------------------------------------------------- constants
 UUID = lambda n: f"0000{n:04x}-0000-1000-8000-00805f9b34fb"
@@ -78,6 +82,14 @@ LABELS = {
         15: "bool-1", 16: "misc-u8", 17: "stat-u32-5", 18: "stat-u32-6",
         19: "bool-2", 20: "bool-3", 21: "stat-u32-7",
     },
+}
+LABELS_C2C615 = {
+    1: {1: "manufacturer", 2: "model", 3: "device-id", 4: "fw-version", 5: "serial-number"},
+    2: {
+        1: "screen-onoff",
+        2: "screen-interval {0:off,2:2s,5:5s,8:8s,10:10s}",
+        3: "brightness [0..100]"
+    }
 }
 ENUMS = {  # (siid, piid) -> {value: label}
     (2, 5): {1: "AI", 2: "Apple", 3: "Single", 4: "Balance"},
@@ -273,8 +285,9 @@ def parse_packet(buf: bytes):
 
 # ---------------------------------------------------------------- BLE glue
 class Charger:
-    def __init__(self, token: bytes, name_filter=None, address=None, verbose=True):
+    def __init__(self, token: bytes, name_filter=None, address=None, model="ad1204", verbose=True):
         self.token = token
+        self.model = model.lower()
         self.name_filter = name_filter
         self.address = address
         self.verbose = verbose
@@ -472,6 +485,8 @@ class Charger:
                 return None
             if pkt["opcode"] == OP_SET_RESP:
                 return pkt
+            if pkt["opcode"] == OP_CHANGED and pkt["objects"][0]["siid"] == siid and pkt["objects"][0]["piid"] == piid:
+                return pkt
 
     async def watch(self, seconds):
         self.log(f"[*] watching spec pushes for {seconds}s ...")
@@ -484,16 +499,25 @@ class Charger:
             self.log("[push]", json.dumps(pkt, ensure_ascii=False))
 
     def pretty(self, pkt):
+        if pkt is None:
+            return
         for o in pkt.get("objects", []):
             siid, piid = o.get("siid"), o.get("piid")
-            label = LABELS.get(siid, {}).get(piid, f"siid{siid}.piid{piid}")
+            if self.model == "c2c615":
+                label = LABELS_C2C615.get(siid, {}).get(piid, f"siid{siid}.piid{piid}")
+            else:
+                label = LABELS.get(siid, {}).get(piid, f"siid{siid}.piid{piid}")
             val = o.get("value", o.get("status"))
             if (siid, piid) in ENUMS and isinstance(val, int):
                 val = f"{val} ({ENUMS[(siid, piid)].get(val, '?')})"
             print(f"  siid {siid:>2} piid {piid:>2}  {label:<42} = {val}")
 
     async def run(self, watch_s=0, sets=None):
-        await self.connect()
+        try:
+            await self.connect()
+        except BleakDeviceNotFoundError:
+            print("Charger not found")
+            return
         try:
             await self.login()
             if sets:
@@ -511,7 +535,10 @@ class Charger:
                     self.pretty(pkt)
             # dump everything readable
             print("[*] reading all properties ...")
-            all_props = [(s, p) for s, pis in LABELS.items() for p in pis]
+            if self.model == "c2c615":
+                all_props = [(s, p) for s, pis in LABELS_C2C615.items() for p in pis]
+            else:
+                all_props = [(s, p) for s, pis in LABELS.items() for p in pis]
             mtu_batch = max(1, (self.client.mtu_size - 9 - 2) // 3)
             for i in range(0, len(all_props), mtu_batch):
                 try:
@@ -526,10 +553,11 @@ class Charger:
 
 
 def main():
-    ap = argparse.ArgumentParser(description="CUKTECH/AD1204 charger BLE client (mible v2 + spec-v2)")
+    ap = argparse.ArgumentParser(description="CUKTECH/AD1204/C2C615 charger BLE client (mible v2 + spec-v2)")
     ap.add_argument("--token", required=True, help="12-byte login token hex (from token extractor)")
     ap.add_argument("--address", help="MAC (Linux/Win) or peripheral UUID (macOS)")
     ap.add_argument("--name", default=None, help="scan name filter (default: any 0xFE95 device)")
+    ap.add_argument("--model", default="ad1204", help="Cuktech BLE Model (default: ad1204)")
     ap.add_argument("--watch", type=int, default=0, metavar="SEC", help="listen for pushes N seconds")
     ap.add_argument("--set", action="append", metavar="SIID-PIID=VALUE", help="set property (e.g. 2-5=1)")
     ap.add_argument("--quiet", action="store_true")
@@ -544,7 +572,7 @@ def main():
         spec, val = s.split("=", 1)
         sets.append((spec, val))
 
-    ch = Charger(token, name_filter=args.name, address=args.address, verbose=not args.quiet)
+    ch = Charger(token, name_filter=args.name, address=args.address, model=args.model, verbose=not args.quiet)
     try:
         asyncio.run(ch.run(watch_s=args.watch, sets=sets))
     except AuthError as e:

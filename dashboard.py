@@ -47,6 +47,7 @@ ble = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(ble)
 
 from bleak import BleakScanner  # noqa: E402
+from usbids_helper import usb_list_find
 
 PORTS = {
     1: "USB-C1",
@@ -101,16 +102,28 @@ SETTINGS = [
     {"key": "4", "siid": 2, "piid": 14, "name": "Brightness", "values": {i: str(i) for i in range(1, 6)}},
 ]
 
+SETTINGS_C2C615U = [
+    {"key": "1", "siid": 2, "piid": 1, "name": "Screen on/off", "values": {0: "Off", 1: "On"}},
+    {"key": "2", "siid": 2, "piid": 2, "name": "Screen Brightness", "values": {i: str(i) for i in range(0, 110, 10)}},
+    {"key": "3", "siid": 2, "piid": 3, "name": "Screen rotation interval", "values": {0: "Off", 2: "2 s", 5: "5 s", 8: "8 s", 10: "10 s"}},
+]
+
 
 class Dashboard:
     PROTO_MIJIA = {0: "idle", 1: "5V", 2: "5V", 3: "QC", 4: "AFC", 5: "FCP",
                    6: "SCP", 7: "PD", 8: "PPS", 9: "PPS", 10: "UFCS"}
     PROTO_HW = {0x30: "PD", 0x60: "USB-A", 0x70: "QC", 0x80: "PD"}
 
-    def __init__(self, token, address, csv_path=None):
+    def __init__(self, token, address, csv_path=None, model="ad1204"):
         self.ch = ble.Charger(token, verbose=False, address=address)
+        self.model = model.lower()
+        if self.model == "c2c615u":
+            PORTS.pop(3, None)
+            PORTS.pop(4, None)
+            PORTS[3] = "Input"
         self.state = {p: None for p in PORTS}          # piid -> (V, I, X, Y, ts)
         self.proto = {p: (None, None) for p in PORTS}  # piid -> (proto_name, cap_w)
+        self.device = {p: ("", "") for p in PORTS}  # piid -> (vid, pid)
         self._csv_file = open(csv_path, "a", newline="") if csv_path else None
         self.csv = csv.writer(self._csv_file) if csv_path else None
         if self.csv:
@@ -147,6 +160,52 @@ class Dashboard:
                                        pname or "", cap if cap is not None else "",
                                        f"{b[2]:02X}{b[3]:02X}"])
                     self._csv_file.flush()
+            if o.get("siid") == 2 and o.get("piid") in [5, 9, 12] and isinstance(v, str):
+                val = bytearray.fromhex(v)
+                if len(val) == 11 and o.get("piid") == 12:
+                    cal_checksum = (val[0] + val[1] + val[2] + val[3] + val[4] + val[5] + val[6] + val[7] + val[8] + val[9]) & 0xFF
+                    if val[0] == int("0xAA", 16) and cal_checksum == val[10]:
+                        volts, amps = (val[1] * 256 + val[2]) / 1000.0, (val[3] * 256 + val[4]) / 1000.0
+                        proto = 7 if volts > 1.0 else 0
+                        proto = 1 if volts > 4.5 and volts < 5.4 else proto
+                        self.state[1] = (volts, amps, proto, 0, time.time())
+                        if self.csv:
+                            pname, cap = self.proto.get(1, (None, None))
+                            self.csv.writerow([f"{time.time():.0f}", 1, PORTS[1],
+                                            f"{volts:.1f}", f"{amps:.1f}", f"{volts * amps:.2f}",
+                                            pname or "", cap if cap is not None else "",
+                                            f"{b[2]:02X}{b[3]:02X}"])
+                            self._csv_file.flush()
+                        volts, amps = (val[5] * 256 + val[6]) / 1000.0, (val[7] * 256 + val[8]) / 1000.0
+                        proto = 7 if volts > 1.0 else 0
+                        proto = 1 if volts > 4.5 and volts < 5.4 else proto
+                        self.state[2] = (volts, amps, proto, 0, time.time())
+                        if self.csv:
+                            pname, cap = self.proto.get(2, (None, None))
+                            self.csv.writerow([f"{time.time():.0f}", 2, PORTS[2],
+                                            f"{volts:.1f}", f"{amps:.1f}", f"{volts * amps:.2f}",
+                                            pname or "", cap if cap is not None else "",
+                                            f"{b[2]:02X}{b[3]:02X}"])
+                            self._csv_file.flush()
+                if len(val) == 14 and o.get("piid") == 9:
+                    cal_checksum = (val[0] + val[1] + val[2] + val[3] + val[4] + val[5] + val[6] + val[7] + val[8] + val[9] + val[10] + val[11] + val[12]) & 0xFF
+                    if val[0] == int("0x77", 16) and cal_checksum == val[13]:
+                        self.device[1] = (f"0x{val[1]:02x}{val[2]:02x}", f"0x{val[3]:02x}{val[4]:02x}")
+                        self.device[2] = (f"0x{val[7]:02x}{val[8]:02x}", f"0x{val[9]:02x}{val[10]:02x}")
+                if len(val) == 11 and o.get("piid") == 5:
+                    cal_checksum = (val[0] + val[1] + val[2] + val[3] + val[4] + val[5] + val[6] + val[7] + val[8] + val[9]) & 0xFF
+                    if val[0] == int("0x55", 16) and cal_checksum == val[10]:
+                        volts, amps = (val[5] * 256 + val[6]) / 1000.0, (val[7] * 256 + val[8]) / 1000.0
+                        self.state[3] = (volts, amps, 7, 0, time.time())
+                        self.proto[3] = ("PD", None) if volts > 5.3 else ("5V", None)
+                        self.device[3] = ("0x2e87", f"0x{((val[1] >> 6) & 0x1):04x}")
+                        if self.csv:
+                            pname, cap = self.proto.get(3, (None, None))
+                            self.csv.writerow([f"{time.time():.0f}", 2, PORTS[3],
+                                            f"{volts:.1f}", f"{amps:.1f}", f"{volts * amps:.2f}",
+                                            pname or "", cap if cap is not None else "",
+                                            f"{b[2]:02X}{b[3]:02X}"])
+                            self._csv_file.flush()
 
     def port_cells(self, p, now):
         """(voltage, current, watts, protocol, load_bar) for one port; None = no data."""
@@ -166,19 +225,30 @@ class Dashboard:
     def build_table(self):
         now = time.time()
         t = Table(box=box.ROUNDED, header_style="bold",
-                  title=f"CUKTECH 10 (AD1204)  {time.strftime('%H:%M:%S')}")
+                  title=f"CUKTECH 10 (AD1204/C2C615U)  {time.strftime('%H:%M:%S')}")
         for name, justify in (("Port", "left"), ("Voltage", "right"), ("Current", "right"),
                               ("Power", "right"), ("Protocol", "left"), ("Load", "left")):
             t.add_column(name, justify=justify)
 
+        if self.model == "c2c615u":
+            t.add_column("Name", "left")
+
         total_w = 0.0
         for p in sorted(PORTS):
             volts, amps, watts, proto, load = self.port_cells(p, now)
-            total_w += watts or 0.0
+            if PORTS[p] != "Input":
+                total_w += watts or 0.0
             active = watts is not None and watts > 0.25
-            t.add_row(PORTS[p], volts, amps,
-                      "—" if watts is None else f"{watts:.1f} W",
-                      proto, load, style="green" if active else "dim")
+            if self.model == "c2c615u":
+                vendor, name = usb_list_find(self.device[p][0], self.device[p][1])
+                t.add_row(PORTS[p], volts, amps,
+                        "—" if watts is None else f"{watts:.1f} W",
+                        proto, load, f"{vendor} {name}", style="green" if active else "dim")
+            else:
+                t.add_row(PORTS[p], volts, amps,
+                        "—" if watts is None else f"{watts:.1f} W",
+                        proto, load, style="green" if active else "dim")
+
 
         t.add_section()
         t.add_row("TOTAL", "", "", f"{total_w:.1f} W", "", bar(min(1.0, total_w / 110.0)),
@@ -193,7 +263,11 @@ class Dashboard:
         if self.mode == "normal":
             return Panel("[dim][s] settings   [Ctrl+C] quit[/dim]", box=box.MINIMAL)
         if self.mode == "select_setting":
-            lines = [f"{s['key']}) {s['name']}" for s in SETTINGS] + ["x) cancel"]
+            if self.model == "c2c615u":
+                ss = SETTINGS_C2C615U
+            else:
+                ss = SETTINGS
+            lines = [f"{s['key']}) {s['name']}" for s in ss] + ["x) cancel"]
             return Panel("\n".join(lines), title="Select setting", border_style="yellow")
         if self.mode == "select_value":
             s = self.pending_setting
@@ -201,7 +275,7 @@ class Dashboard:
             return Panel("\n".join(lines), title=f"Select value — {s['name']}", border_style="yellow")
         if self.mode == "confirm":
             s, v = self.pending_setting, self.pending_value
-            return Panel(f"Send {s['name']} = {s['values'][v]} to the device?\n[y] yes   [n] no",
+            return Panel(f"Send {s['name']} = {s['values'][v]} to the device?\n (y) yes   (n) no",
                          title="Confirm", border_style="red")
         if self.mode == "result":
             return Panel(self.result_msg, border_style="green" if self.result_ok else "red")
@@ -219,7 +293,11 @@ class Dashboard:
             if ch in ("x", "\x1b"):
                 self.mode = "normal"
                 return
-            for s in SETTINGS:
+            if self.model == "c2c615u":
+                ss = SETTINGS_C2C615U
+            else:
+                ss = SETTINGS
+            for s in ss:
                 if s["key"] == ch:
                     self.pending_setting = s
                     self.mode = "select_value"
@@ -309,6 +387,7 @@ async def find_address(name_filter):
 
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--model", default="ad1204", help="Cuktech BLE Model (ad1204 or c2c615u, default: ad1204)")
     ap.add_argument("--token", required=True, help="12-byte login token hex (from fetch_tokens.py)")
     ap.add_argument("--address", default=None, help="MAC (Linux/Win) or peripheral UUID (macOS); omit to auto-scan")
     ap.add_argument("--name", default=None, help="scan name filter")
@@ -324,7 +403,7 @@ def main():
         if not addr:
             sys.exit("[-] charger not advertising (awake? app disconnected?)")
         print(f"[*] connecting to device...")
-        d = Dashboard(token, addr, args.csv)
+        d = Dashboard(token, addr, args.csv, model=args.model)
         try:
             await d.run()
         except asyncio.CancelledError:

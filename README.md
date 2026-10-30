@@ -1,4 +1,4 @@
-# CUKTECH 10 (AD1204) Charger Tools
+# CUKTECH 10 Ultra (AD1204/C2C615U) Charger Tools
 
 Watch your CUKTECH 10 GaN Charger Ultra's live power stats and change its
 settings — from your laptop, over Bluetooth, without the Mi Home app.
@@ -102,6 +102,7 @@ Bluetooth access; allow it.
 
 You'll see a live table like:
 
+AD1204
 ```
 ┌─────────┬─────────┬─────────┬────────┬──────────┬────────────────┐
 │ Port    │ Voltage │ Current │ Power  │ Protocol │ Load           │
@@ -113,6 +114,19 @@ You'll see a live table like:
 ├─────────┼─────────┼─────────┼────────┼──────────┼────────────────┤
 │ TOTAL   │         │         │ 60.0 W │          │ ████████░░░░░░ │
 └─────────┴─────────┴─────────┴────────┴──────────┴────────────────┘
+```
+
+C2C615U
+```
+┌─────────┬─────────┬─────────┬────────┬──────────┬────────────────┬──────────────────────┐
+│ Port    │ Voltage │ Current │ Power  │ Protocol │ Load           │ Name                 │
+├─────────┼─────────┼─────────┼────────┼──────────┼────────────────┼──────────────────────┤
+│ USB-C1  │   5.1 V │   1.7 A │  8.4 W │ 5V       │ ██░░░░░░░░░░░░ │ unknow unknow        │
+│ USB-C2  │   5.1 V │   2.3 A │ 11.6 W │ 5V       │ ██░░░░░░░░░░░░ │ Nintendo Switch 2    │
+│ Input   │  11.8 V │   1.8 A │ 21.3 W │ PD       │ ████░░░░░░░░░░ │ Cuktech Adapter Type │
+├─────────┼─────────┼─────────┼────────┼──────────┼────────────────┼──────────────────────┤
+│ TOTAL   │         │         │ 19.8 W │          │ ████████░░░░░░ │                      │
+└─────────┴─────────┴─────────┴────────┴──────────┴────────────────┴──────────────────────┘
 ```
 
 A port only shows numbers once something is actually plugged in and drawing
