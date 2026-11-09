@@ -104,7 +104,7 @@ SETTINGS = [
 
 SETTINGS_C2C615U = [
     {"key": "1", "siid": 2, "piid": 1, "name": "Screen on/off", "values": {0: "Off", 1: "On"}},
-    {"key": "2", "siid": 2, "piid": 2, "name": "Screen Brightness", "values": {i: str(i) for i in range(0, 110, 10)}},
+    {"key": "2", "siid": 2, "piid": 2, "name": "Screen Brightness", "values": {i: str(i * 10) for i in range(0, 10)}},
     {"key": "3", "siid": 2, "piid": 3, "name": "Screen rotation interval", "values": {0: "Off", 2: "2 s", 5: "5 s", 8: "8 s", 10: "10 s"}},
 ]
 
@@ -329,6 +329,8 @@ class Dashboard:
 
     async def send_pending_setting(self):
         s, v = self.pending_setting, self.pending_value
+        if s['name'] == 'Screen Brightness':
+            v = v * 10
         try:
             raw = struct.pack("<B", v)
             pkt = await self.ch.set_prop(s["siid"], s["piid"], 1, raw, timeout=6.0)
