@@ -83,7 +83,7 @@ LABELS = {
         19: "bool-2", 20: "bool-3", 21: "stat-u32-7",
     },
 }
-LABELS_C2C615 = {
+LABELS_C2C615U = {
     1: {1: "manufacturer", 2: "model", 3: "device-id", 4: "fw-version", 5: "serial-number"},
     2: {
         1: "screen-onoff",
@@ -503,8 +503,8 @@ class Charger:
             return
         for o in pkt.get("objects", []):
             siid, piid = o.get("siid"), o.get("piid")
-            if self.model == "c2c615":
-                label = LABELS_C2C615.get(siid, {}).get(piid, f"siid{siid}.piid{piid}")
+            if self.model == "c2c615u":
+                label = LABELS_C2C615U.get(siid, {}).get(piid, f"siid{siid}.piid{piid}")
             else:
                 label = LABELS.get(siid, {}).get(piid, f"siid{siid}.piid{piid}")
             val = o.get("value", o.get("status"))

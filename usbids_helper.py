@@ -120,8 +120,13 @@ USB_LIST = {
         "0x751d": ("Apple", "iPhone 18"),
         "0x751e": ("Apple", "iPhone 18 Pro"),
         "0x751f": ("Apple", "iPhone 18 Pro Max"),
-        "0x8104": ("Apple", "iPhone Duo"),
-        "0xffff": ("Apple", "iPhone")
+        "0x7522": ("Apple", "iPhone Duo"),
+        "0xffff": ("Apple", "Device")
+    },
+
+    "0x05c6": {
+        "0x0938": ("Qualcomm", "ASUS Zenbook A14"),
+        "0xffff": ("Qualcomm", "Device")
     },
 
     "0x0b05": {
@@ -311,9 +316,17 @@ USB_LIST = {
         "0xffff": ("Dell", "Notebook"),
     },
 
-    "0x8087": {
+    "0x5fc9": {
+        "0xffff": ("UFCS", "Device"),
+    },
+
+    "0x8086": {
         "0xffff": ("Intel", "Notebook"),
     },
+
+    "0x8087": {
+        "0xffff": ("Intel/TB", "Notebook")
+    }
 }
 
 
